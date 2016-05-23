@@ -1,9 +1,14 @@
+#![feature(slice_patterns)]
+
 extern crate regex;
 
 use std::collections::HashMap;
 use std::net::TcpListener;
 use std::io::{BufReader,BufWriter};
 use std::io::prelude::*;
+use std::str::Split;
+
+use std::fs::OpenOptions;
 
 use regex::Regex;
 
@@ -20,6 +25,21 @@ fn main() {
     let get_re = Regex::new(r"GET /get\?key=(?P<key>\S+) HTTP/1.1").unwrap();
     let set_re = Regex::new(r"GET /set\?(?P<key>[^=]+)=(?P<val>\S+) HTTP/1.1").unwrap();
     let server = TcpListener::bind("localhost:4000").unwrap();
+
+    let mut fd = match OpenOptions::new().read(true).write(true).create(true).open("map.data") {
+        Ok(fd) => fd,
+        Err(err) => panic!("{}", err),
+    };
+
+    {
+        let br = BufReader::new(fd.try_clone().unwrap());
+        for line in br.lines() {
+            let t = line.unwrap();
+            let v: Vec<_> = t.split(' ').collect();
+            map.insert(v[0].to_owned(), v[1].to_owned());
+        }
+    }
+
     for connection in server.incoming() {
         match connection {
             Err(_) => panic!("connection failure"),
@@ -37,6 +57,7 @@ fn main() {
                     let k = captures.name("key").unwrap();
                     let v = captures.name("val").unwrap();
                     map.insert(k.to_owned(), v.to_owned());
+                    writeln!(fd, "{} {}", k, v);
                     write!(writer, "{}", respond(200, format!("{}: {}", k, v).as_ref()));
                 } else {
                     write!(writer, "{}", respond(400, "error: unknown method"));
